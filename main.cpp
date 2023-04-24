@@ -25,28 +25,26 @@ void err_sys( const char* mes )
     exit(1);
 }
 
-struct CONNECT
+class CONNECT
 {
-private:
+protected:
 	int sockfd;
 	int newsockfd;
 	struct sockaddr_in serv_addr;
 	char buf[MAXLINE];
 public:
-	void ConnectClient()
-	{
-        bzero( (char*)&serv_addr, sizeof( serv_addr ) );
-		serv_addr.sin_family		= AF_INET;
-		serv_addr.sin_addr.s_addr	= inet_addr( SERV_TCP_IP );/**/
-		serv_addr.sin_port	        = htons( SERV_TCP_PORT );
-		/*Open a TCP socket*/
-		if(( sockfd = socket( AF_INET, SOCK_STREAM, 0)) < 0 )
-            err_sys( "client: can't open stream socket" );
-        if( connect( sockfd, (struct sockaddr*)&serv_addr, sizeof( serv_addr )) < 0)
-            err_sys( "client: can't connect to server");
-        std::cout << "client connect" << std::endl;
-	}
-	void ConnectServer()
+    virtual void Connect() = 0;
+    virtual void ServerListen()
+    {}
+    virtual void CloseConnectClient()
+    {}
+    virtual void CliendSend( const std::string mess)
+    {}
+};
+
+class SERVER: public CONNECT
+{
+    void Connect() override
 	{
         bzero( (char*)&serv_addr, sizeof( serv_addr ) );
 		serv_addr.sin_family		= AF_INET;
@@ -60,8 +58,8 @@ public:
             err_sys( "server: can't bind local address");
         std::cout << "server connect" << std::endl;
 	}
-	/*remake*/
-	void ServerListen()
+
+	void ServerListen() override
 	{
         listen( sockfd, 5);
         socklen_t clilen = sizeof( serv_addr );
@@ -70,20 +68,37 @@ public:
         for( ; ; )
         {
         int bytes_read = recv(newsockfd, buf, MAXLINE, 0);
-        if(bytes_read == 0)/* recv return 0, when connect disapeared */
+        if(bytes_read == 0)
         {
-            close( sockfd );
+            close(newsockfd);
             return;
         }
         std::cout << "server read" << std::endl;
         std::cout << content(buf, bytes_read) << std::endl;
         }
 	}
-	void CloseConnectClient()
+};
+
+class CLIENT: public CONNECT
+{
+    void Connect() override
+	{
+        bzero( (char*)&serv_addr, sizeof( serv_addr ) );
+		serv_addr.sin_family		= AF_INET;
+		serv_addr.sin_addr.s_addr	= inet_addr( SERV_TCP_IP );/**/
+		serv_addr.sin_port	        = htons( SERV_TCP_PORT );
+		/*Open a TCP socket*/
+		if(( sockfd = socket( AF_INET, SOCK_STREAM, 0)) < 0 )
+            err_sys( "client: can't open stream socket" );
+        if( connect( sockfd, (struct sockaddr*)&serv_addr, sizeof( serv_addr )) < 0)
+            err_sys( "client: can't connect to server");
+        std::cout << "client connect" << std::endl;
+	}
+	void CloseConnectClient() override
 	{
         close( sockfd );
 	}
-	void CliendSend( const std::string mess)
+	void CliendSend( const std::string mess) override
 	{
         for(int i = 0; i < mess.size(); i++)
         {
@@ -97,8 +112,8 @@ public:
 int main(int arg, char* argv[])
 {
     pid_t chpid = fork();
-    CONNECT conect;
     std::string mess;
+    CONNECT* sender;
     switch(chpid)
     {
     case -1:
@@ -106,13 +121,14 @@ int main(int arg, char* argv[])
         break;
     case 0:
         /*child process client*/
-        conect.ConnectClient();
+        sender = new CLIENT;
         break;
     default:
         /*parent process server*/
-        conect.ConnectServer();
+        sender = new SERVER;
         break;
     }
+    sender->Connect();
         switch(chpid)
         {
         case -1:
@@ -125,16 +141,16 @@ int main(int arg, char* argv[])
                 getline(std::cin, mess);
                 if(mess == "exit")
                 {
-                    conect.CliendSend( mess);
+                    sender->CliendSend( mess);
                     break;
                 }
-                conect.CliendSend( mess);
+                sender->CliendSend( mess);
             }
-            conect.CloseConnectClient();
+            sender->CloseConnectClient();
             break;
         default:
             /*parent process server*/
-            conect.ServerListen();
+            sender->ServerListen();
             break;
         }
     return 0;
